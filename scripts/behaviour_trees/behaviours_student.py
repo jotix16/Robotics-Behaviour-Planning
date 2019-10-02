@@ -70,7 +70,7 @@ class go(pt.behaviour.Behaviour):
         # tell the tree that you're running
         return pt.common.Status.RUNNING
 
-class tuckarm(pt.behaviour.Behaviour):
+class execute_plan(pt.behaviour.Behaviour):
 
     """
     Sends a goal to the tuck arm action server.
