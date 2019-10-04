@@ -16,15 +16,23 @@ class BehaviourTree(ptr.trees.BehaviourTree):
 
 		rospy.loginfo("Initialising behaviour tree")
 
-		b00 = TuckArm()
-		b0 = activate_localizator()  # activate global localizator
-		b1 = pt.composites.Selector(
+		b0 = TuckArm()
+		b1 = activate_localizator()  # activate global localizator
+		b2 = pt.composites.Selector(
 			name="Rotate for localization",
 			children=[counter(70, "Rotated?"), go("Rotate!", 0, 1)])  # rotate for betteer localization
-		b2 = Navigate(self.pickup_pose_topic)
-		b3 = Navigate(self.place_pose_topic)
+		b3 = Navigate(self.pickup_pose_topic)
+		# pickup
+		b4 = LowerHead("Lower head!", "down")
+		b5 = PickCube()
+		b6 = LowerHead("Rise head!", "up")
+
+		b7 = Navigate(self.place_pose_topic)
+		# place
+		b8 = LowerHead("Lower head!", "down")
+		b9 = PlaceCube()
 		# become the tree
-		tree = RSequence(name="Main sequence", children=[b00 ,b0, b1, b2, b3])
+		tree = RSequence(name="Main sequence", children=[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9])
 		super(BehaviourTree, self).__init__(tree)
 
 		# execute the behaviour tree
@@ -91,7 +99,7 @@ class activate_localizator(pt.behaviour.Behaviour):
 
 		# server
 		rospy.wait_for_service('/global_localization', timeout=30)
-		self.move_head_srv = rospy.ServiceProxy('/global_localization', Empty)
+		self.localize_srv = rospy.ServiceProxy('/global_localization', Empty)
 
 		# execution checker
 		self.activated = False
@@ -105,7 +113,7 @@ class activate_localizator(pt.behaviour.Behaviour):
 		if not self.activated:
 
 			# command
-			self.move_head_srv()
+			self.localize_srv()
 			self.activated = True
 
 			# tell the tree you're running
@@ -229,6 +237,108 @@ class TuckArm(pt.behaviour.Behaviour): # put arm in home position
 			return pt.common.Status.RUNNING
 ################################
 
+class Running(pt.behaviour.Behaviour):
+	def __init__(self):
+		super(Running, self).__init__(name="running")
+	
+	def update(self):
+		return pt.common.Status.RUNNING
+
+
+class PickCube(pt.behaviour.Behaviour):
+	def __init__(self):
+		self.pickService = rospy.get_param(rospy.get_name() + '/pick_srv')
+
+		self.pickProxy = rospy.ServiceProxy(self.pickService, SetBool)
+
+		# execution checker
+		self.called_service = False
+		self.finished = False
+		
+		super(PickCube, self).__init__("Pick Up Cube")
+	def update(self):
+		# try to tuck head if haven't already
+		if not self.called_service:
+
+			# command
+			self.result = self.pickProxy(True)
+			rospy.loginfo("result of the pick operation "+str(self.result.success))
+			self.called_service = True
+
+			# tell the tree you're running
+			return pt.common.Status.RUNNING
+
+		# react to outcome
+		else: return pt.common.Status.SUCCESS if self.result.success else pt.common.Status.FAILURE
+
+
+class PlaceCube(pt.behaviour.Behaviour):
+	def __init__(self):
+		self.pickService = rospy.get_param(rospy.get_name() + '/place_srv')
+
+		self.placeProxy = rospy.ServiceProxy(self.pickService, SetBool)
+
+		# execution checker
+		self.called_service = False
+		self.finished = False
+		
+		super(PlaceCube, self).__init__("Place Cube")
+	def update(self):
+		# try to tuck head if haven't already
+		if not self.called_service:
+
+			# command
+			self.result = self.placeProxy(True)
+			rospy.loginfo("result of the place operation "+ str(self.result.success))
+			self.called_service = True
+
+			# tell the tree you're running
+			return pt.common.Status.RUNNING
+
+		# react to outcome
+		else: return pt.common.Status.SUCCESS if self.result.success else pt.common.Status.FAILURE
+
+
+class LowerHead(pt.behaviour.Behaviour):
+
+	def __init__(self, name, type):
+
+		# server
+		mv_head_srv_nm = rospy.get_param(rospy.get_name() + '/move_head_srv')
+		self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
+		rospy.wait_for_service(mv_head_srv_nm, timeout=30)
+		self.type = type
+		# execution checker
+		self.tried = False
+		self.tucked = False
+
+		# become a behaviour
+		super(LowerHead, self).__init__(name)
+
+	def update(self):
+
+		# try to tuck head if haven't already
+		if not self.tried:
+
+			# command
+			self.move_head_req = self.move_head_srv(self.type)
+			self.tried = True
+
+			# tell the tree you're running
+			return pt.common.Status.RUNNING
+
+		# react to outcome
+		else: return pt.common.Status.SUCCESS if self.move_head_req.success else pt.common.Status.FAILURE
+
+
+
+
+
+
+
+
+
+################################
 
 if __name__ == "__main__":
 
